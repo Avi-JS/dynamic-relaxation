@@ -1,0 +1,153 @@
+
+    private void RunScript(bool activate, List<Curve> lines, List<Point3d> fixedPoints, object prestress, int iterations, ref object RelaxedLines, ref object RelaxedPoints, ref object ConnectedNodes)
+    {
+        list<point3d> relaxedNodes = new list<point3d>();
+        RelaxationModule relaxMod = new RelaxationModule();
+        datatree<int32> nodeConnections = new datatree<int32>();
+
+        if (activate)
+        {
+            for (int32 i = 0; i <= lines.count - 1; i++)
+            {
+                curve line = lines[i];
+                point3d startPt = line.pointatstart;
+                point3d endPt = line.PointAtEnd;
+                relaxMod.findConnectedNodes(startPt, endPt);
+            }
+
+            for (int32 i = 0; i <= relaxMod.nodes.count - 1; i++)
+            {
+                GH_Path pth = new GH_Path(i);
+                List<int32> nConnections = relaxMod.nodes[i].connections.distinct().tolist();
+                nodeConnections.addrange(nConnections, pth);
+            }
+
+            for (int32 i = 0; i <= fixedPoints.count - 1; i++)
+            {
+                point3d pt = fixedPoints[i];
+                relaxMod.fixNode(pt);
+            }
+
+            for (int32 i = 0; i <= iterations; i++)
+                relaxMod.relaxNodes(prestress);
+
+            for (int32 i = 0; i <= relaxMod.nodes.count - 1; i++)
+            {
+                point3d pt = relaxMod.nodes[i].loc;
+                relaxedNodes.add(pt);
+            }
+        }
+
+        RelaxedLines = relaxMod.getLines();
+        RelaxedPoints = relaxedNodes;
+        ConnectedNodes = nodeConnections;
+    }
+
+    // <Custom additional code> 
+
+    class RelaxationModule
+    {
+        public list<node> nodes = new list<node>();
+
+        public void findConnectedNodes(point3d startPt, point3d endPt)
+        {
+            Int32 startId = addNode(startPt);
+            int32 endId = addNode(endPt);
+            nodes[startId].addConnection(endId);
+            nodes[endId].addConnection(startId);
+        }
+
+        public void fixNode(Point3d fixedPt)
+        {
+            for (int32 i = 0; i <= nodes.count - 1; i++)
+            {
+                point3d pt = new point3d(nodes[i].loc.x, nodes[i].loc.y, nodes[i].loc.z);
+                if (pt == fixedPt)
+                    nodes[i].@fixed = true;
+            }
+        }
+
+        private int32 addNode(point3d pt)
+        {
+            for (int32 i = 0; i <= nodes.count - 1; i++)
+            {
+                vector3d nodePt = nodes[i].loc;
+                vector3d testPt = new vector3d(pt.X, pt.Y, pt.z);
+                Vector3d diff = nodePt - testPt;
+
+                if ((diff.Length < 0.1))
+                    return i;
+            }
+            nodes.add(new node(pt));
+            return nodes.count - 1;
+        }
+
+
+        public list<line> getLines()
+        {
+            list<line> lines = new list<line>();
+
+            for (int32 i = 0; i <= nodes.count - 1; i++)
+            {
+                List<int32> connectionsId = nodes[i].connections;
+                for (int32 j = 0; j <= connectionsId.count - 1; j++)
+                {
+                    Int32 jId = connectionsId[j];
+
+                    if (jId < i)
+                    {
+                        point3d startPt = nodes[i].loc;
+                        point3d endPt = nodes[jId].loc;
+                        lines.add(new line(startPt, endPt));
+                    }
+                }
+            }
+            return lines;
+        }
+
+
+
+        // move each node towards the center of its connected nodes
+        // prestress is the concept as opposed to actual prestress
+        public void relaxNodes(double prestress)
+        {
+            foreach (node n in nodes)
+            {
+                if (!n.@fixed)
+                {
+                    List<int32> connectionsId = n.connections;
+                    vector3d pt = new vector3d(0, 0, 0);
+
+                    foreach (int32 id in connectionsId)
+                        pt += nodes[id].loc;
+
+                    pt = pt / (double)connectionsId.count;
+
+                    vector3d vec = pt - n.loc;
+                    vec *= prestress;
+
+                    point3d newPt = n.loc + vec;
+                    n.loc = newPt;
+                }
+            }
+        }
+    }
+
+    class Node
+    {
+        public vector3d loc;
+        public list<Int32> connections = new list<Int32>(); // every node has list of other nodes it is connected to
+        public bool @fixed = false; // is node meant to be a fixed point or not
+
+        public Node(point3d _location)
+        {
+            loc = _location;
+            @fixed = false;
+        }
+
+        public void addConnection(int32 id)
+        {
+            connections.add(id);
+        }
+    }
+}
